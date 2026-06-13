@@ -22,7 +22,7 @@
 
   function fmtTime(iso) {
     if (!iso) return ''
-    const d = new Date(iso)
+    const d = toUtcDate(iso)
     return `${pad(d.getHours())}:${pad(d.getMinutes())}`
   }
 
@@ -31,12 +31,18 @@
     return `${Math.round(seconds / 60)}m`
   }
 
+  function toUtcDate(s) {
+    // SQLite stores datetime('now') as "YYYY-MM-DD HH:MM:SS" (UTC, no Z).
+    // new Date() treats that format as local time — force UTC parsing.
+    if (!s) return new Date(0)
+    return new Date(s.includes('T') ? s : s.replace(' ', 'T') + 'Z')
+  }
+
   function getLiveElapsed(session) {
     if (!session) return 0
     let elapsed = session.duration_seconds
     if (session.status === 'active') {
-      const activeStart = new Date(session.last_active_start)
-      elapsed += Math.floor((Date.now() - activeStart.getTime()) / 1000)
+      elapsed += Math.floor((Date.now() - toUtcDate(session.last_active_start).getTime()) / 1000)
     }
     return elapsed
   }
@@ -133,6 +139,7 @@
         <div class="timer-work-label">Ready to focus</div>
         <div class="preset-row">
           <select class="preset-select" id="preset-select">${options}</select>
+          <button class="timer-btn btn-cancel" id="btn-edit-presets" style="font-size:13px;padding:8px 14px">Edit</button>
         </div>
         <div class="timer-controls">
           <button class="timer-btn btn-start" id="btn-start">Start</button>
@@ -185,6 +192,11 @@
         render()
         startTick()
       })
+    }
+
+    const btnEditPresets = document.getElementById('btn-edit-presets')
+    if (btnEditPresets) {
+      btnEditPresets.addEventListener('click', () => showPresets())
     }
 
     const btnPause = document.getElementById('btn-pause')
@@ -241,6 +253,108 @@
     todaySessions = history
     render()
     if (activeSession?.status === 'active') startTick()
+  }
+
+  // ─── Preset editor ────────────────────────────────────────────────────────
+
+  function showPresets(editingId) {
+    const editing = editingId ? presets.find(p => p.id === editingId) : null
+
+    container.innerHTML = `
+      <style>
+        .timers-wrap { max-width:640px; margin:0 auto; padding:20px; font-family:system-ui,sans-serif; }
+        .timer-btn { padding:10px 22px; border-radius:10px; border:none; cursor:pointer; font-size:15px; font-weight:600; transition:opacity .15s; }
+        .timer-btn:hover { opacity:.85; }
+        .btn-start  { background:#6366f1; color:#fff; }
+        .btn-cancel { background:#f3f4f6; color:#6b7280; }
+        .preset-row { display:flex; gap:10px; align-items:center; margin-bottom:10px; }
+        .section-title { font-size:14px; font-weight:600; color:#374151; margin:0 0 10px; }
+        .preset-item { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:12px 16px; display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+        .preset-info { flex:1; }
+        .preset-name { font-weight:600; font-size:14px; color:#111827; }
+        .preset-meta { font-size:12px; color:#9ca3af; margin-top:2px; }
+        .form-group { margin-bottom:14px; }
+        .form-label { display:block; font-size:13px; font-weight:500; color:#6b7280; margin-bottom:4px; }
+        .form-input { width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; box-sizing:border-box; }
+        .form-row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+        .back-link { background:none; border:none; color:#6366f1; cursor:pointer; font-size:14px; padding:0; margin-bottom:16px; display:inline-block; }
+      </style>
+      <div class="timers-wrap">
+        <button class="back-link" id="presets-back">← Back</button>
+        <div class="section-title" style="font-size:16px;margin-bottom:16px">Presets</div>
+
+        <div id="presets-list">
+          ${presets.map(p => `
+            <div class="preset-item">
+              <div class="preset-info">
+                <div class="preset-name">${p.name}</div>
+                <div class="preset-meta">${p.work_minutes}m work · ${p.break_minutes}m break</div>
+              </div>
+              <button class="timer-btn btn-cancel preset-edit-btn" data-id="${p.id}" style="font-size:12px;padding:6px 12px">Edit</button>
+              <button class="timer-btn btn-cancel preset-del-btn"  data-id="${p.id}" style="font-size:12px;padding:6px 12px;color:#dc2626">Delete</button>
+            </div>`).join('')}
+        </div>
+
+        <div id="preset-form-wrap" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-top:16px">
+          <div class="section-title">${editing ? 'Edit preset' : 'New preset'}</div>
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input class="form-input" id="pf-name" value="${editing ? editing.name : ''}" placeholder="e.g. Deep Work">
+          </div>
+          <div class="form-row2">
+            <div class="form-group">
+              <label class="form-label">Work (minutes)</label>
+              <input class="form-input" id="pf-work" type="number" min="1" max="120" value="${editing ? editing.work_minutes : 25}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Break (minutes)</label>
+              <input class="form-input" id="pf-break" type="number" min="1" max="60" value="${editing ? editing.break_minutes : 5}">
+            </div>
+          </div>
+          <div style="display:flex;gap:10px">
+            <button class="timer-btn btn-start" id="pf-save" style="font-size:14px;padding:9px 20px">
+              ${editing ? 'Save changes' : 'Add preset'}
+            </button>
+            ${editing ? `<button class="timer-btn btn-cancel" id="pf-cancel-edit" style="font-size:14px;padding:9px 20px">Cancel</button>` : ''}
+          </div>
+        </div>
+      </div>
+    `
+
+    document.getElementById('presets-back').addEventListener('click', () => loadData())
+
+    document.querySelectorAll('.preset-edit-btn').forEach(btn => {
+      btn.addEventListener('click', () => showPresets(Number(btn.dataset.id)))
+    })
+
+    document.querySelectorAll('.preset-del-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this preset?')) return
+        await shell.api.delete(`/presets/${btn.dataset.id}`)
+        presets = await shell.api.get('/presets')
+        showPresets()
+      })
+    })
+
+    const cancelEdit = document.getElementById('pf-cancel-edit')
+    if (cancelEdit) cancelEdit.addEventListener('click', () => showPresets())
+
+    document.getElementById('pf-save').addEventListener('click', async () => {
+      const name  = document.getElementById('pf-name').value.trim()
+      const work  = parseInt(document.getElementById('pf-work').value,  10)
+      const brk   = parseInt(document.getElementById('pf-break').value, 10)
+      if (!name)           { alert('Name is required'); return }
+      if (!(work  > 0))    { alert('Work minutes must be positive'); return }
+      if (!(brk   > 0))    { alert('Break minutes must be positive'); return }
+
+      if (editing) {
+        await shell.api.put(`/presets/${editing.id}`, { name, work_minutes: work, break_minutes: brk })
+      } else {
+        await shell.api.post('/presets', { name, work_minutes: work, break_minutes: brk })
+      }
+      presets = await shell.api.get('/presets')
+      showPresets()
+    })
   }
 
   // ─── Module registration ───────────────────────────────────────────────────
