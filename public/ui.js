@@ -5,10 +5,13 @@
 
   let shell
   let container
-  let presets     = []
-  let activeSession = null
-  let todaySessions = []
-  let tickInterval  = null
+  let presets        = []
+  let activeSession  = null
+  let todaySessions  = []
+  let tickInterval   = null
+  let inBreak        = false
+  let breakSecondsLeft = 0
+  let breakInterval  = null
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -61,6 +64,29 @@
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
+  function startBreak(breakMinutes) {
+    inBreak = true
+    breakSecondsLeft = breakMinutes * 60
+    render()
+    breakInterval = setInterval(() => {
+      breakSecondsLeft--
+      const el = document.getElementById('timer-countdown')
+      if (!el) { stopBreak(); return }
+      el.textContent = fmtSeconds(Math.max(0, breakSecondsLeft))
+      if (breakSecondsLeft <= 0) {
+        stopBreak()
+        playSound('hi-bowl.mp3')
+        render()
+      }
+    }, 1000)
+  }
+
+  function stopBreak() {
+    if (breakInterval) { clearInterval(breakInterval); breakInterval = null }
+    inBreak = false
+    breakSecondsLeft = 0
+  }
+
   function render() {
     container.innerHTML = `
       <style>
@@ -94,7 +120,7 @@
         .empty-history { text-align:center; color:#9ca3af; padding:24px; font-size:14px; }
       </style>
       <div class="timers-wrap">
-        ${activeSession ? renderActive() : renderStart()}
+        ${inBreak ? renderBreak() : activeSession ? renderActive() : renderStart()}
         <div>
           <div class="section-title">Today's sessions</div>
           ${todaySessions.length === 0
@@ -130,6 +156,21 @@
             : `<button class="timer-btn btn-pause"  id="btn-pause">Pause</button>`}
           <button class="timer-btn btn-complete" id="btn-complete">Complete</button>
           <button class="timer-btn btn-cancel"   id="btn-cancel">Cancel</button>
+        </div>
+      </div>
+    `
+  }
+
+  function renderBreak() {
+    return `
+      <div class="timer-card">
+        <div class="timer-preset-name">BREAK</div>
+        <div class="timer-countdown" id="timer-countdown" style="color:#10b981">
+          ${fmtSeconds(breakSecondsLeft)}
+        </div>
+        <div class="timer-work-label">Take a break · chimes when done</div>
+        <div class="timer-controls">
+          <button class="timer-btn btn-cancel" id="btn-skip-break">Skip Break</button>
         </div>
       </div>
     `
@@ -173,12 +214,22 @@
   function startTick() {
     stopTick()
     if (!activeSession || activeSession.status !== 'active') return
-    tickInterval = setInterval(() => {
+    tickInterval = setInterval(async () => {
       const countdown = document.getElementById('timer-countdown')
       if (!countdown) { stopTick(); return }
       const rem = getRemainingSeconds(activeSession)
       countdown.textContent = fmtSeconds(rem)
       if (rem < 60) countdown.classList.add('urgent')
+      if (rem === 0) {
+        stopTick()
+        playSound('med-bowl.mp3')
+        const breakMins = activeSession.break_minutes || 5
+        await shell.api.post(`/sessions/${activeSession.id}/complete`, {})
+        const today = new Date().toISOString().slice(0, 10)
+        todaySessions = await shell.api.get(`/sessions?date=${today}`)
+        activeSession = null
+        startBreak(breakMins)
+      }
     }, 1000)
   }
 
@@ -195,7 +246,6 @@
         const select = document.getElementById('preset-select')
         const presetId = select ? select.value : (presets[0]?.id)
         if (!presetId) return
-        playSound('hi-bowl.mp3')
         activeSession = await shell.api.post('/sessions/start', { preset_id: Number(presetId) })
         render()
         startTick()
@@ -230,9 +280,20 @@
       btnComplete.addEventListener('click', async () => {
         stopTick()
         playSound('med-bowl.mp3')
+        const breakMins = activeSession.break_minutes || 5
         await shell.api.post(`/sessions/${activeSession.id}/complete`, {})
+        const today = new Date().toISOString().slice(0, 10)
+        todaySessions = await shell.api.get(`/sessions?date=${today}`)
         activeSession = null
-        await loadData()
+        startBreak(breakMins)
+      })
+    }
+
+    const btnSkipBreak = document.getElementById('btn-skip-break')
+    if (btnSkipBreak) {
+      btnSkipBreak.addEventListener('click', () => {
+        stopBreak()
+        render()
       })
     }
 
@@ -382,6 +443,7 @@
 
     onDeactivate() {
       stopTick()
+      stopBreak()
       activeSession = null
       todaySessions = []
     },
