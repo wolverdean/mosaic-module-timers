@@ -7,6 +7,7 @@ export interface Session {
   preset_id:        number | null
   preset_name:      string
   work_minutes:     number
+  break_minutes:    number
   status:           'active' | 'paused' | 'completed' | 'cancelled'
   started_at:       string
   ended_at:         string | null
@@ -40,9 +41,9 @@ export function startSession(db: Database, userId: number, presetId: number, now
 
   const result = db.prepare(`
     INSERT INTO timers_sessions
-      (user_id, preset_id, preset_name, work_minutes, status, started_at, last_active_start, duration_seconds)
-    VALUES (?, ?, ?, ?, 'active', ?, ?, 0)
-  `).run(userId, presetId, preset.name, preset.work_minutes, now, now)
+      (user_id, preset_id, preset_name, work_minutes, break_minutes, status, started_at, last_active_start, duration_seconds)
+    VALUES (?, ?, ?, ?, ?, 'active', ?, ?, 0)
+  `).run(userId, presetId, preset.name, preset.work_minutes, preset.break_minutes, now, now)
 
   return getSession(db, userId, result.lastInsertRowid as number)!
 }

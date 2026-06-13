@@ -34,4 +34,9 @@ export function migrate(db: ModuleDb): void {
   db.exec(`CREATE INDEX IF NOT EXISTS timers_sessions_user_date ON timers_sessions(user_id, started_at)`)
   db.exec(`CREATE INDEX IF NOT EXISTS timers_sessions_status    ON timers_sessions(user_id, status)`)
   db.exec(`CREATE INDEX IF NOT EXISTS timers_presets_user       ON timers_presets(user_id)`)
+
+  const cols = (db.prepare(`PRAGMA table_info(timers_sessions)`).all() as { name: string }[]).map(c => c.name)
+  if (!cols.includes('break_minutes')) {
+    db.exec(`ALTER TABLE timers_sessions ADD COLUMN break_minutes INTEGER NOT NULL DEFAULT 5`)
+  }
 }
