@@ -31,11 +31,18 @@
     return `${Math.round(seconds / 60)}m`
   }
 
+  function playSound(filename) {
+    new Audio(`/sounds/${filename}`).play().catch(() => {})
+  }
+
   function toUtcDate(s) {
-    // SQLite stores datetime('now') as "YYYY-MM-DD HH:MM:SS" (UTC, no Z).
-    // new Date() treats that format as local time — force UTC parsing.
+    // Timestamps are stored as UTC but without a timezone suffix —
+    // either 'YYYY-MM-DD HH:MM:SS' (SQLite) or 'YYYY-MM-DDTHH:MM:SS' (JS ISO).
+    // Without an explicit Z, browsers parse them as local time.
+    // Always append Z so they're correctly treated as UTC.
     if (!s) return new Date(0)
-    return new Date(s.includes('T') ? s : s.replace(' ', 'T') + 'Z')
+    const n = s.replace(' ', 'T')
+    return new Date(n.endsWith('Z') ? n : n + 'Z')
   }
 
   function getLiveElapsed(session) {
@@ -188,6 +195,7 @@
         const select = document.getElementById('preset-select')
         const presetId = select ? select.value : (presets[0]?.id)
         if (!presetId) return
+        playSound('hi-bowl.mp3')
         activeSession = await shell.api.post('/sessions/start', { preset_id: Number(presetId) })
         render()
         startTick()
@@ -221,6 +229,7 @@
     if (btnComplete) {
       btnComplete.addEventListener('click', async () => {
         stopTick()
+        playSound('med-bowl.mp3')
         await shell.api.post(`/sessions/${activeSession.id}/complete`, {})
         activeSession = null
         await loadData()
