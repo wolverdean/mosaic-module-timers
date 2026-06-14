@@ -1,5 +1,5 @@
 import type { ReportHooks, ReportSummary, ModuleContext } from '@mosaic/sdk'
-import { getDailySummary, getWeeklySummary } from '../services/reports.service.js'
+import { getDailySummary, getWeeklySummary, getDetailedTimersReport } from '../services/reports.service.js'
 
 export const reportHooks: ReportHooks = {
   summary(ctx: ModuleContext, userId: number): ReportSummary {
@@ -25,5 +25,8 @@ export const reportHooks: ReportHooks = {
       'Sessions this week':    weekly.sessions,
       'Focus minutes this week': weekly.focus_minutes,
     }
+  },
+  detailed(ctx: ModuleContext, userId: number, start: string, end: string) {
+    return getDetailedTimersReport(ctx.db.raw, userId, start, end)
   },
 }
