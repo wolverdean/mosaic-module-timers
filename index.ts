@@ -5,6 +5,7 @@ import { migrate }           from './src/migrate.js'
 import { createRouter }      from './src/routes/index.js'
 import { reportHooks }       from './src/hooks/reports.js'
 import { getDailySummary }   from './src/services/reports.service.js'
+import { pomodoroPushJob }   from './src/jobs/pomodoro-push.job.js'
 
 const meter = metrics.getMeter('timers')
 const _runs = meter.createCounter('timers.jobs.runs_total')
@@ -34,6 +35,14 @@ export default defineModule({
   },
 
   frontend: { entry: '/api/timers/ui.js' },
+
+  jobs: [
+    {
+      name:     'timers:pomodoro-push',
+      schedule: '* * * * *',
+      fn:       pomodoroPushJob,
+    },
+  ],
 
   reports: reportHooks,
 
