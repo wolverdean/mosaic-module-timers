@@ -16,6 +16,15 @@ export interface Session {
   duration_seconds: number
   notes:            string
   created_at:       string
+  ends_at:          string | null
+  push_sent_at:     string | null
+}
+
+// Appends Z so the string is always parsed as UTC, then formats back without Z.
+// All stored timestamps are UTC without a Z suffix — this ensures consistent arithmetic.
+function addSeconds(isoStr: string, seconds: number): string {
+  const base = isoStr.endsWith('Z') ? isoStr : isoStr + 'Z'
+  return new Date(new Date(base).getTime() + seconds * 1000).toISOString().slice(0, 19)
 }
 
 function secondsBetween(from: string, to: string): number {
@@ -39,11 +48,13 @@ export function startSession(db: Database, userId: number, presetId: number, now
   const preset = getPreset(db, userId, presetId)
   if (!preset) throw new Error('preset not found')
 
+  const endsAt = addSeconds(now, preset.work_minutes * 60)
+
   const result = db.prepare(`
     INSERT INTO timers_sessions
-      (user_id, preset_id, preset_name, work_minutes, break_minutes, status, started_at, last_active_start, duration_seconds)
-    VALUES (?, ?, ?, ?, ?, 'active', ?, ?, 0)
-  `).run(userId, presetId, preset.name, preset.work_minutes, preset.break_minutes, now, now)
+      (user_id, preset_id, preset_name, work_minutes, break_minutes, status, started_at, last_active_start, duration_seconds, ends_at, push_sent_at)
+    VALUES (?, ?, ?, ?, ?, 'active', ?, ?, 0, ?, NULL)
+  `).run(userId, presetId, preset.name, preset.work_minutes, preset.break_minutes, now, now, endsAt)
 
   return getSession(db, userId, result.lastInsertRowid as number)!
 }
@@ -56,7 +67,7 @@ export function pauseSession(db: Database, userId: number, id: number, now = new
   const elapsed = secondsBetween(session.last_active_start, now)
   db.prepare(`
     UPDATE timers_sessions
-    SET status = 'paused', paused_at = ?, duration_seconds = duration_seconds + ?
+    SET status = 'paused', paused_at = ?, duration_seconds = duration_seconds + ?, ends_at = NULL
     WHERE id = ? AND user_id = ?
   `).run(now, elapsed, id, userId)
 
@@ -68,11 +79,14 @@ export function resumeSession(db: Database, userId: number, id: number, now = ne
   if (!session) return null
   if (session.status !== 'paused') throw new Error('session not paused')
 
+  const remainingSeconds = session.work_minutes * 60 - session.duration_seconds
+  const endsAt = addSeconds(now, remainingSeconds)
+
   db.prepare(`
     UPDATE timers_sessions
-    SET status = 'active', paused_at = NULL, last_active_start = ?
+    SET status = 'active', paused_at = NULL, last_active_start = ?, ends_at = ?, push_sent_at = NULL
     WHERE id = ? AND user_id = ?
-  `).run(now, id, userId)
+  `).run(now, endsAt, id, userId)
 
   return getSession(db, userId, id)!
 }
@@ -89,7 +103,7 @@ export function completeSession(db: Database, userId: number, id: number, now = 
   db.prepare(`
     UPDATE timers_sessions
     SET status = 'completed', ended_at = ?, duration_seconds = duration_seconds + ?,
-        notes = COALESCE(?, notes)
+        notes = COALESCE(?, notes), ends_at = NULL
     WHERE id = ? AND user_id = ?
   `).run(now, extraElapsed, notes ?? null, id, userId)
 
@@ -102,7 +116,7 @@ export function cancelSession(db: Database, userId: number, id: number, now = ne
   if (session.status !== 'active' && session.status !== 'paused') throw new Error('session not in progress')
 
   db.prepare(`
-    UPDATE timers_sessions SET status = 'cancelled', ended_at = ? WHERE id = ? AND user_id = ?
+    UPDATE timers_sessions SET status = 'cancelled', ended_at = ?, ends_at = NULL WHERE id = ? AND user_id = ?
   `).run(now, id, userId)
 
   return getSession(db, userId, id)!

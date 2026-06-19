@@ -39,4 +39,10 @@ export function migrate(db: ModuleDb): void {
   if (!cols.includes('break_minutes')) {
     db.exec(`ALTER TABLE timers_sessions ADD COLUMN break_minutes INTEGER NOT NULL DEFAULT 5`)
   }
+  if (!cols.includes('ends_at')) {
+    db.exec(`ALTER TABLE timers_sessions ADD COLUMN ends_at TEXT`)
+  }
+  if (!cols.includes('push_sent_at')) {
+    db.exec(`ALTER TABLE timers_sessions ADD COLUMN push_sent_at TEXT`)
+  }
 }

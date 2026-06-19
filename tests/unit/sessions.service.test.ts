@@ -178,6 +178,71 @@ describe('getActiveSession', () => {
   })
 })
 
+describe('startSession — ends_at and push_sent_at', () => {
+  it('sets ends_at to now + work_minutes * 60 seconds', () => {
+    // T0 = 10:00:00, 25 min = 1500 s → 10:25:00
+    const s = startSession(db, 1, presetId, T0)
+    expect(s.ends_at).toBe('2026-06-12T10:25:00')
+  })
+
+  it('sets push_sent_at to null', () => {
+    const s = startSession(db, 1, presetId, T0)
+    expect(s.push_sent_at).toBeNull()
+  })
+})
+
+describe('pauseSession — ends_at', () => {
+  it('nulls ends_at on pause', () => {
+    const s = startSession(db, 1, presetId, T0)
+    const paused = pauseSession(db, 1, s.id, T1)
+    expect(paused.ends_at).toBeNull()
+  })
+})
+
+describe('resumeSession — ends_at and push_sent_at', () => {
+  it('recomputes ends_at from remaining work time', () => {
+    // Start at T0, pause at T1 (+600 s → duration_seconds=600, remaining=900 s)
+    // Resume at T2 (10:15:00) → ends_at = 10:15:00 + 900 s = 10:30:00
+    const s = startSession(db, 1, presetId, T0)
+    pauseSession(db, 1, s.id, T1)
+    const resumed = resumeSession(db, 1, s.id, T2)
+    expect(resumed?.ends_at).toBe('2026-06-12T10:30:00')
+  })
+
+  it('clears push_sent_at on resume', () => {
+    const s = startSession(db, 1, presetId, T0)
+    pauseSession(db, 1, s.id, T1)
+    const resumed = resumeSession(db, 1, s.id, T2)
+    expect(resumed?.push_sent_at).toBeNull()
+  })
+})
+
+describe('completeSession — ends_at', () => {
+  it('nulls ends_at on complete', () => {
+    const s = startSession(db, 1, presetId, T0)
+    const done = completeSession(db, 1, s.id, T1)
+    expect(done?.ends_at).toBeNull()
+  })
+})
+
+describe('cancelSession — ends_at', () => {
+  it('nulls ends_at on cancel', () => {
+    const s = startSession(db, 1, presetId, T0)
+    const cancelled = cancelSession(db, 1, s.id, T1)
+    expect(cancelled?.ends_at).toBeNull()
+  })
+})
+
+describe('pause→resume ends_at cycle', () => {
+  it('ends_at is correct after a full pause→resume cycle', () => {
+    const s = startSession(db, 1, presetId, T0)  // ends_at = 10:25:00
+    pauseSession(db, 1, s.id, T1)                // duration_seconds=600, ends_at=null
+    const resumed = resumeSession(db, 1, s.id, T2) // remaining=900 s, ends_at=10:30:00
+    expect(resumed?.ends_at).toBe('2026-06-12T10:30:00')
+    expect(resumed?.push_sent_at).toBeNull()
+  })
+})
+
 describe('listSessions', () => {
   it('returns completed sessions by default', () => {
     const s = startSession(db, 1, presetId, T0)
