@@ -3,3 +3,8 @@ dist/
 *.db
 .env
 coverage/
+
+# Feature Factory (managed externally — install via feature-factory repo)
+.claude/agents/
+.claude/hooks/
+.claude/skills/
