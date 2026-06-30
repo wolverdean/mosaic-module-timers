@@ -83,7 +83,7 @@ export function getDetailedTimersReport(db: Database, userId: number, start: str
           id:      r.id,
           title:   `${r.preset_name} · ${Math.floor(r.duration_seconds / 60)} min${r.notes ? ` — ${r.notes}` : ''}`,
           dueDate: r.date,
-          url:     '/timers',
+          url:     '/#timers',
         })),
       },
     ],

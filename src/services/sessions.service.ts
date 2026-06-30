@@ -31,14 +31,22 @@ function secondsBetween(from: string, to: string): number {
   return Math.max(0, Math.floor((new Date(to).getTime() - new Date(from).getTime()) / 1000))
 }
 
+// push_sent_at = 'PENDING' is an internal job sentinel that must not leak to API clients.
+function normalizeSession(s: Session): Session {
+  if (s.push_sent_at === 'PENDING') s.push_sent_at = null
+  return s
+}
+
 function getSession(db: Database, userId: number, id: number): Session | null {
-  return (db.prepare(`SELECT * FROM timers_sessions WHERE id = ? AND user_id = ?`).get(id, userId) as Session | undefined) ?? null
+  const row = (db.prepare(`SELECT * FROM timers_sessions WHERE id = ? AND user_id = ?`).get(id, userId) as Session | undefined) ?? null
+  return row ? normalizeSession(row) : null
 }
 
 export function getActiveSession(db: Database, userId: number): Session | null {
-  return (db.prepare(`
+  const row = (db.prepare(`
     SELECT * FROM timers_sessions WHERE user_id = ? AND status IN ('active','paused')
   `).get(userId) as Session | undefined) ?? null
+  return row ? normalizeSession(row) : null
 }
 
 export function startSession(db: Database, userId: number, presetId: number, now = new Date().toISOString().slice(0, 19)): Session {
@@ -79,12 +87,13 @@ export function resumeSession(db: Database, userId: number, id: number, now = ne
   if (!session) return null
   if (session.status !== 'paused') throw new Error('session not paused')
 
-  const remainingSeconds = session.work_minutes * 60 - session.duration_seconds
+  const remainingSeconds = Math.max(0, session.work_minutes * 60 - session.duration_seconds)
   const endsAt = addSeconds(now, remainingSeconds)
 
   db.prepare(`
     UPDATE timers_sessions
-    SET status = 'active', paused_at = NULL, last_active_start = ?, ends_at = ?, push_sent_at = NULL
+    SET status = 'active', paused_at = NULL, last_active_start = ?, ends_at = ?,
+        push_sent_at = CASE WHEN push_sent_at IS NOT NULL AND push_sent_at != 'PENDING' THEN push_sent_at ELSE NULL END
     WHERE id = ? AND user_id = ?
   `).run(now, endsAt, id, userId)
 
@@ -139,5 +148,5 @@ export function listSessions(
     params.push(opts.month)
   }
 
-  return db.prepare(`SELECT * FROM timers_sessions ${where} ORDER BY started_at DESC`).all(...params) as Session[]
+  return (db.prepare(`SELECT * FROM timers_sessions ${where} ORDER BY started_at DESC`).all(...params) as Session[]).map(normalizeSession)
 }

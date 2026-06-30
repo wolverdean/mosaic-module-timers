@@ -243,6 +243,59 @@ describe('pause→resume ends_at cycle', () => {
   })
 })
 
+describe('resumeSession — overtime (duration_seconds > work_minutes * 60)', () => {
+  it('clamps ends_at to now when user has already overrun the timer', () => {
+    // Start at T0, work 30 min (exceeds 25-min budget), pause, resume at T2
+    // T0=10:00, T1=10:10 used in other tests; use explicit timestamps here
+    const start = '2026-06-12T09:00:00'
+    const pauseAt = '2026-06-12T09:30:00'  // 30 min → duration_seconds=1800, exceeds 1500
+    const resumeAt = '2026-06-12T09:35:00'
+    const s = startSession(db, 1, presetId, start)
+    pauseSession(db, 1, s.id, pauseAt)
+    const resumed = resumeSession(db, 1, s.id, resumeAt)
+    // ends_at must not be in the past; clamped remaining is 0 → ends_at = resumeAt
+    expect(resumed?.ends_at).toBe(resumeAt)
+  })
+
+  it('does not double-fire push after overtime pause+resume', () => {
+    // Simulate a session that already received its push (push_sent_at is a timestamp)
+    // then user continues, pauses, resumes — push_sent_at must be preserved
+    const start = '2026-06-12T09:00:00'
+    const pauseAt = '2026-06-12T09:30:00'
+    const resumeAt = '2026-06-12T09:35:00'
+    const sentAt = '2026-06-12T09:25:01'
+
+    const s = startSession(db, 1, presetId, start)
+    // Simulate push already sent (stamp directly in DB)
+    db.prepare(`UPDATE timers_sessions SET push_sent_at = ? WHERE id = ?`).run(sentAt, s.id)
+    pauseSession(db, 1, s.id, pauseAt)
+    const resumed = resumeSession(db, 1, s.id, resumeAt)
+    // push_sent_at must be preserved so job does not re-fire
+    expect(resumed?.push_sent_at).toBe(sentAt)
+  })
+
+  it('clears PENDING to null on resume so a failed push can be retried', () => {
+    const start = '2026-06-12T09:00:00'
+    const pauseAt = '2026-06-12T09:26:00'
+    const resumeAt = '2026-06-12T09:30:00'
+
+    const s = startSession(db, 1, presetId, start)
+    db.prepare(`UPDATE timers_sessions SET push_sent_at = 'PENDING' WHERE id = ?`).run(s.id)
+    pauseSession(db, 1, s.id, pauseAt)
+    const resumed = resumeSession(db, 1, s.id, resumeAt)
+    expect(resumed?.push_sent_at).toBeNull()
+  })
+})
+
+describe('getActiveSession / getSession — PENDING sentinel normalisation', () => {
+  it('returns push_sent_at as null when DB contains PENDING', () => {
+    const s = startSession(db, 1, presetId, T0)
+    db.prepare(`UPDATE timers_sessions SET push_sent_at = 'PENDING' WHERE id = ?`).run(s.id)
+    const active = getActiveSession(db, 1)
+    expect(active?.push_sent_at).toBeNull()
+  })
+})
+
 describe('listSessions', () => {
   it('returns completed sessions by default', () => {
     const s = startSession(db, 1, presetId, T0)

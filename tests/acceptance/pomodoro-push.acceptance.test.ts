@@ -88,7 +88,7 @@ describe('AC1 — push fires when timer expires', () => {
     expect(env.pushFn).toHaveBeenCalledOnce()
     expect(env.pushFn).toHaveBeenCalledWith(1, expect.objectContaining({
       title: 'Pomodoro complete',
-      url:   '/api/timers',
+      url:   '/#timers',
     }))
     const row = getRow(env.db, sessionId)
     expect(row.push_sent_at).not.toBeNull()
